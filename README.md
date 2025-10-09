@@ -16,7 +16,7 @@ The system consists of a **Kafka Producer** (fetching news), a **Kafka Consumer*
 
 Install dependencies:
 ```bash
-pip install kafka-python vaderSentiment feedparser streamlit
+pip install -r requirements
 ```
 
 ---
@@ -24,18 +24,9 @@ pip install kafka-python vaderSentiment feedparser streamlit
 ### **2️⃣ Start Kafka**
 Open two terminals and run:
 ```bash
-# Terminal 1: Start Zookeeper
-bin/zookeeper-server-start.sh config/zookeeper.properties
-```
-
-```bash
-# Terminal 2: Start Kafka Broker
-bin/kafka-server-start.sh config/server.properties
-```
-
-Then create the topic:
-```bash
-bin/kafka-topics.sh --create --topic financial-news --bootstrap-server localhost:9092
+KAFKA_CLUSTER_ID="$(bin/kafka-storage.sh random-uuid)"
+bin/kafka-storage.sh format --standalone -t $KAFKA_CLUSTER_ID -c config/server.properties
+bin/kafka-server-start.sh config/server.properties 
 ```
 
 ---
