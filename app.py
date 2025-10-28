@@ -1,10 +1,11 @@
-# app.py
 import streamlit as st
 import importlib.util
 import threading
 import os
+import time
+from datetime import datetime
 
-# --- Dynamically import start_kafka.py no matter what ---
+# --- Dynamically import and start Kafka ---
 def load_and_start_kafka():
     kafka_path = os.path.join(os.path.dirname(__file__), "start_kafka.py")
     spec = importlib.util.spec_from_file_location("start_kafka", kafka_path)
@@ -13,12 +14,13 @@ def load_and_start_kafka():
     start_kafka.start_kafka()  # explicitly call it
     return True
 
+
 # --- Streamlit setup ---
 st.set_page_config(page_title="Financial News Sentiment Dashboard", layout="wide")
 st.title("💹 Financial News Sentiment Dashboard")
 st.caption("Real-time financial sentiment analysis using Kafka + AI")
 
-# Only start Kafka once per session
+# --- Start Kafka once per session ---
 if "kafka_started" not in st.session_state:
     st.info("🔍 Checking Kafka cluster status...")
     if load_and_start_kafka():
@@ -29,35 +31,46 @@ if "kafka_started" not in st.session_state:
 else:
     st.success("✅ Kafka already running.")
 
-# Continue with your rest of Streamlit logic (producer/consumer)
+
+# --- Import Producer & Consumer ---
 from producer import produce_news
 from consumer import consume_news
 
+
+# --- Company Input ---
 company = st.text_input("Enter Company Name:", "Tesla")
 
-col1, col2 = st.columns(2)
-start_btn = col1.button("🚀 Start Producer")
-consume_btn = col2.button("📊 Start Consumer")
+# --- Single Unified Button ---
+start_btn = st.button("🚀 Start Analysis")
 
+# --- Start both Producer + Consumer together ---
 if start_btn:
-    st.success(f"Started producing news for {company}...")
-    thread = threading.Thread(target=produce_news, args=(company,), daemon=True)
-    thread.start()
+    st.success(f"Starting full sentiment analysis pipeline for {company}...")
 
-if consume_btn:
-    st.info("Fetching live sentiment updates...")
+    # Run producer in background
+    producer_thread = threading.Thread(target=produce_news, args=(company,), daemon=True)
+    producer_thread.start()
+
+    # Run consumer live updates
+    st.info("📊 Fetching live sentiment updates...")
     placeholder = st.empty()
 
     for counts, most_pos, most_neg, overall, conf in consume_news():
         with placeholder.container():
-            st.markdown("### 🕒 Updated Sentiment Summary")
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            st.markdown(f"### 🕒 Live Sentiment Summary for **{company}** (Updated: `{current_time}`)")
             st.metric("Overall Sentiment", overall.upper(), f"{conf:.1f}% confidence")
+
             st.write("---")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("😊 Positive", counts["positive"])
-            col2.metric("☹️ Negative", counts["negative"])
-            col3.metric("😐 Neutral", counts["neutral"])
+            c1, c2, c3 = st.columns(3)
+            c1.metric("😊 Positive", counts["positive"])
+            c2.metric("☹️ Negative", counts["negative"])
+            c3.metric("😐 Neutral", counts["neutral"])
+
             st.write("---")
             st.subheader("Top Headlines")
             st.write(f"**Most Positive:** {most_pos['headline']} *(score={most_pos['score']:.2f})*")
             st.write(f"**Most Negative:** {most_neg['headline']} *(score={most_neg['score']:.2f})*")
+
+            # Small delay to keep UI responsive and update time regularly
+            time.sleep(2)
