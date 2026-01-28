@@ -1,4 +1,5 @@
 streamlit
 kafka-python
-vaderSentiment
 feedparser
+transformers
+torch

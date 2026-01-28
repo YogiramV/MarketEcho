@@ -1,23 +1,66 @@
 # consumer.py
 from kafka import KafkaConsumer
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import json
 import time
 from datetime import datetime
 
 TOPIC = "financial-news"
-vader = SentimentIntensityAnalyzer()
+
+# Initialize FinBERT for CPU usage
+try:
+    from transformers import pipeline
+    import torch
+
+    # Force CPU usage and optimize for low-end hardware
+    device = torch.device('cpu')
+
+    # Use FinBERT with CPU optimizations
+    sentiment_pipeline = pipeline(
+        "sentiment-analysis",
+        model="ProsusAI/finbert",
+        device=device,
+        torch_dtype=torch.float32,  # Use float32 for CPU
+        return_all_scores=False,
+        truncation=True,
+        max_length=512
+    )
+
+    USE_FINBERT = True
+    print("✅ FinBERT loaded successfully for CPU usage")
+
+except ImportError as e:
+    print(f"❌ Failed to load transformers/torch: {e}")
+    USE_FINBERT = False
+    sentiment_pipeline = None
+
+except Exception as e:
+    print(f"❌ Failed to load FinBERT model: {e}")
+    USE_FINBERT = False
+    sentiment_pipeline = None
 
 
 def analyze_sentiment(text):
-    score = vader.polarity_scores(text)["compound"]
-    if score >= 0.05:
-        sentiment = "positive"
-    elif score <= -0.05:
-        sentiment = "negative"
-    else:
-        sentiment = "neutral"
-    return sentiment, score
+    if not USE_FINBERT or sentiment_pipeline is None:
+        raise Exception("FinBERT is not available. Please ensure transformers and torch are installed.")
+
+    try:
+        # Run inference on CPU
+        result = sentiment_pipeline(text)[0]
+        sentiment = result['label'].lower()
+        score = result['score']
+
+        # Normalize score
+        if sentiment == 'positive':
+            score = score
+        elif sentiment == 'negative':
+            score = -score
+        else:
+            score = 0
+
+        return sentiment, score
+
+    except Exception as e:
+        raise Exception(f"FinBERT analysis failed: {e}. FinBERT is required for this application.")
 
 
 def get_summary(messages):

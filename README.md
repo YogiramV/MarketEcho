@@ -2,7 +2,7 @@
 
 ## 🧠 What It Is
 This project analyzes **real-time financial news headlines** to determine overall **market sentiment** — whether it’s **positive**, **negative**, or **neutral**.  
-It leverages **Apache Kafka (KRaft mode)** for real-time data streaming and **VADER (a lightweight NLP model)** for sentiment classification.  
+It leverages **Apache Kafka (KRaft mode)** for real-time data streaming and **FinBERT (CPU-optimized)** for financial sentiment classification.  
 The architecture includes:
 - **Kafka Producer** → Fetches live company-related news headlines.  
 - **Kafka Consumer** → Performs real-time sentiment aggregation.  
@@ -21,6 +21,9 @@ Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
+
+### **1.5️⃣ Model Download**
+The first time you run the application, FinBERT model (~400MB) will be downloaded automatically. This only happens once and runs on CPU for low-end hardware compatibility.
 
 ---
 
@@ -65,7 +68,7 @@ python KafkaProducer.py
 ---
 
 ### **5️⃣ Run the Consumer**
-The consumer listens to the same topic, applies **VADER sentiment analysis**, and provides:
+The consumer listens to the same topic, applies **FinBERT sentiment analysis**, and provides:
 - Sentiment distribution (Positive / Negative / Neutral)  
 - Overall sentiment label and confidence  
 - Most positive and most negative headlines  
@@ -105,7 +108,7 @@ The dashboard lets you:
 ### 🧩 Tech Stack
 - **Apache Kafka 4.1.0** (KRaft mode)
 - **Python 3.9+**
-- **VADER Sentiment Analyzer**
+- **FinBERT** (CPU-optimized financial sentiment model)
 - **Feedparser (Google News RSS)**
 - **Streamlit (Interactive UI)**
 
