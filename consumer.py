@@ -68,12 +68,20 @@ def get_summary(messages):
     most_pos, most_neg = {"headline": "",
                           "score": -1}, {"headline": "", "score": 1}
     total_score = 0
+    all_headlines = []
 
     for msg in messages:
         headline = msg["headline"]
         sentiment, score = analyze_sentiment(headline)
         counts[sentiment] += 1
         total_score += score
+        
+        # Store all headlines with their sentiment
+        all_headlines.append({
+            "headline": headline,
+            "sentiment": sentiment,
+            "score": score
+        })
 
         if score > most_pos["score"]:
             most_pos = {"headline": headline, "score": score}
@@ -82,11 +90,15 @@ def get_summary(messages):
 
     total = sum(counts.values())
     if total == 0:
-        return counts, most_pos, most_neg, "neutral", 0
+        return counts, most_pos, most_neg, "neutral", 0, []
 
     overall = "positive" if total_score > 0 else "negative" if total_score < 0 else "neutral"
     confidence = abs(total_score / total) * 100
-    return counts, most_pos, most_neg, overall, confidence
+    
+    # Sort headlines by score (most positive first)
+    all_headlines.sort(key=lambda x: x["score"], reverse=True)
+    
+    return counts, most_pos, most_neg, overall, confidence, all_headlines
 
 
 def consume_news():
@@ -101,7 +113,7 @@ def consume_news():
     buffer = []
     for msg in consumer:
         buffer.append(msg.value)
-        if len(buffer) >= 5:  # update summary every few messages
-            yield get_summary(buffer)
-            buffer = []
-        time.sleep(5)
+        # Always summarize all news received so far
+        yield get_summary(buffer)
+        # Small delay to avoid tight loop
+        time.sleep(1)
