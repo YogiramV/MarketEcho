@@ -3,6 +3,7 @@ import feedparser
 from kafka import KafkaProducer
 import json
 import time
+from urllib.parse import quote_plus
 
 TOPIC = "financial-news"
 
@@ -14,7 +15,8 @@ producer = KafkaProducer(
 
 def get_company_news(company):
     """Fetch company-specific finance news via RSS."""
-    url = f"https://news.google.com/rss/search?q={company}+finance"
+    query = quote_plus(f"{company} finance")
+    url = f"https://news.google.com/rss/search?q={query}"
     feed = feedparser.parse(url)
     return [entry.title for entry in feed.entries]
 

@@ -3,3 +3,4 @@ kafka-python
 feedparser
 transformers
 torch
+requests

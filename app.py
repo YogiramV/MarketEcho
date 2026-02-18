@@ -3,7 +3,9 @@ import importlib.util
 import threading
 import os
 import time
+import re
 from datetime import datetime
+import requests
 
 # --- Dynamically import and start Kafka ---
 def load_and_start_kafka():
@@ -20,6 +22,112 @@ st.set_page_config(page_title="Financial News Sentiment Dashboard", layout="wide
 st.title("💹 Financial News Sentiment Dashboard")
 st.caption("Real-time financial sentiment analysis using Kafka + AI")
 
+# --- Chatbot configuration (Ollama) ---
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
+SYSTEM_PROMPT = (
+    "You are the MarketEcho assistant. Help users understand the sentiment dashboard, "
+    "explain headlines, and answer questions about the app. Keep answers concise."
+)
+
+
+def ollama_chat(messages):
+    url = f"{OLLAMA_HOST}/api/chat"
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": messages,
+        "stream": False,
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("message", {}).get("content", "")
+    except requests.RequestException as exc:
+        return (
+            "Chat error. Make sure Ollama is running and the model is pulled. "
+            f"Details: {exc}"
+        )
+
+
+NEWS_KEYWORDS = ("news", "headline", "headlines", "updates", "stock", "price", "shares")
+FILLER_WORDS = {
+    "give",
+    "me",
+    "the",
+    "a",
+    "an",
+    "new",
+    "newer",
+    "latest",
+    "recent",
+    "today",
+    "please",
+    "headlines",
+    "headline",
+    "news",
+    "updates",
+    "stock",
+    "price",
+    "shares",
+    "about",
+    "for",
+    "on",
+    "of",
+}
+
+
+def normalize_company(candidate):
+    cleaned = candidate.strip(" .,:;!?")
+    tokens = [token for token in re.split(r"\s+", cleaned) if token]
+    remaining = [token for token in tokens if token.lower() not in FILLER_WORDS]
+    if not remaining:
+        return None
+    return " ".join(remaining)
+
+
+def extract_company_from_prompt(prompt):
+    lower = prompt.lower()
+    if not any(keyword in lower for keyword in NEWS_KEYWORDS):
+        return None
+
+    patterns = [
+        r"(?:news|headlines|updates)\s+(?:on|about|for)\s+([A-Za-z][A-Za-z0-9 .&-]{1,40})",
+        r"(?:stock|shares|price)\s+of\s+([A-Za-z][A-Za-z0-9 .&-]{1,40})",
+        r"([A-Za-z][A-Za-z0-9 .&-]{1,40})\s+(?:stock|shares|price|news|headlines|updates)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, prompt, flags=re.IGNORECASE)
+        if match:
+            normalized = normalize_company(match.group(1))
+            if normalized:
+                return normalized
+
+    return None
+
+
+def summarize_headlines(company, headlines):
+    if not headlines:
+        return ""
+
+    trimmed = headlines[:10]
+    prompt_lines = "\n".join(f"- {headline}" for headline in trimmed)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": (
+                f"Summarize these {company} headlines in 3-5 sentences for a casual "
+                f"investor. Do not list the headlines.\n{prompt_lines}"
+            ),
+        },
+    ]
+    return ollama_chat(messages)
+
+
+
+
 # --- Start Kafka once per session ---
 if "kafka_started" not in st.session_state:
     st.info("🔍 Checking Kafka cluster status...")
@@ -33,8 +141,38 @@ else:
 
 
 # --- Import Producer & Consumer ---
-from producer import produce_news
+from producer import produce_news, get_company_news
 from consumer import consume_news
+
+
+# --- Sidebar Chatbot ---
+st.sidebar.header("Chatbot")
+st.sidebar.caption(f"Local model: {OLLAMA_MODEL}")
+
+user_prompt = st.sidebar.chat_input("Ask about the dashboard or headlines")
+if user_prompt:
+    with st.sidebar.chat_message("user"):
+        st.markdown(user_prompt)
+    with st.sidebar.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            company_from_chat = extract_company_from_prompt(user_prompt)
+            if company_from_chat:
+                headlines = get_company_news(company_from_chat)
+                if headlines:
+                    summary = summarize_headlines(company_from_chat, headlines).strip()
+                    if not summary:
+                        summary = "Here is a quick summary of the latest coverage."
+                    latest_headlines = "\n".join(f"- {headline}" for headline in headlines[:10])
+                    reply = (
+                        f"{summary}\n\nLatest headlines for {company_from_chat}:\n"
+                        f"{latest_headlines}"
+                    )
+                else:
+                    reply = f"I couldn't find recent headlines for {company_from_chat}."
+            else:
+                messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_prompt}]
+                reply = ollama_chat(messages)
+            st.markdown(reply)
 
 
 # --- Company Input ---
