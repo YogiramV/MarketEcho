@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MarketEcho | Financial Sentiment Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+    <div class="app-shell">
+        <header class="topbar">
+            <div>
+                <h1>MarketEcho</h1>
+                <p>Real-time financial sentiment analysis powered by Kafka + FinBERT</p>
+            </div>
+            <div class="status-pill" id="pipelineStatus">Idle</div>
+        </header>
+
+        <main class="layout">
+            <section class="panel controls">
+                <h2>Analysis Controls</h2>
+                <label for="companyInput">Company Name</label>
+                <div class="row">
+                    <input id="companyInput" type="text" placeholder="Tesla" value="Tesla" />
+                    <button id="startBtn" class="primary">Start</button>
+                    <button id="stopBtn" class="secondary">Stop</button>
+                </div>
+                <p class="hint">Start analysis to launch producer + consumer for a company stream.</p>
+                <div id="statusMessage" class="message"></div>
+            </section>
+
+            <section class="panel metrics">
+                <h2>Live Sentiment Summary</h2>
+                <div class="metric-grid">
+                    <div class="metric-card">
+                        <span>Total Headlines</span>
+                        <strong id="totalNews">0</strong>
+                    </div>
+                    <div class="metric-card">
+                        <span>Overall Sentiment</span>
+                        <strong id="overallSentiment">NEUTRAL</strong>
+                    </div>
+                    <div class="metric-card">
+                        <span>Confidence</span>
+                        <strong id="confidence">0.00%</strong>
+                    </div>
+                </div>
+
+                <div class="metric-grid compact">
+                    <div class="metric-card small">
+                        <span>Positive</span>
+                        <strong id="positiveCount">0</strong>
+                    </div>
+                    <div class="metric-card small">
+                        <span>Negative</span>
+                        <strong id="negativeCount">0</strong>
+                    </div>
+                    <div class="metric-card small">
+                        <span>Neutral</span>
+                        <strong id="neutralCount">0</strong>
+                    </div>
+                </div>
+
+                <div class="headline-box">
+                    <h3>Most Positive</h3>
+                    <p id="mostPositive">—</p>
+                </div>
+                <div class="headline-box">
+                    <h3>Most Negative</h3>
+                    <p id="mostNegative">—</p>
+                </div>
+
+                <div class="headline-list">
+                    <h3>All Headlines</h3>
+                    <ul id="headlinesList"></ul>
+                </div>
+            </section>
+
+            <aside class="panel chat">
+                <h2>Assistant</h2>
+                <p class="hint">Model: {{ model_name }}</p>
+                <div id="chatHistory" class="chat-history"></div>
+                <div class="chat-row">
+                    <textarea id="chatInput" placeholder="Ask about market headlines or dashboard usage"></textarea>
+                    <button id="chatSend" class="primary">Send</button>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

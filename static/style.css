@@ -1,0 +1,320 @@
+:root {
+    --bg: #0f172a;
+    --panel: #111827;
+    --panel-soft: #1f2937;
+    --panel-soft-2: #243244;
+    --text: #e5e7eb;
+    --muted: #9ca3af;
+    --line: #374151;
+    --primary: #2563eb;
+    --danger: #dc2626;
+    --success: #16a34a;
+    --shadow: 0 10px 30px rgba(2, 6, 23, 0.35);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(37, 99, 235, 0.15), transparent 60%),
+        radial-gradient(900px 500px at 100% 0%, rgba(22, 163, 74, 0.08), transparent 60%),
+        var(--bg);
+    color: var(--text);
+    line-height: 1.45;
+}
+
+.app-shell {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 28px 24px;
+}
+
+.topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 16px;
+}
+
+.topbar h1 {
+    margin: 0;
+    font-size: 28px;
+    letter-spacing: 0.2px;
+}
+
+.topbar p {
+    margin: 6px 0 0;
+    color: var(--muted);
+}
+
+.status-pill {
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: var(--panel-soft);
+    border: 1px solid var(--line);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.layout {
+    display: grid;
+    grid-template-columns: 2fr 3fr 2fr;
+    gap: 18px;
+}
+
+.panel {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01)), var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px;
+    box-shadow: var(--shadow);
+}
+
+.panel h2 {
+    margin-top: 0;
+    margin-bottom: 14px;
+    font-size: 1.05rem;
+}
+
+.row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+input, textarea, button {
+    font: inherit;
+}
+
+input, textarea {
+    width: 100%;
+    background: #0b1220;
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+textarea {
+    min-height: 70px;
+    resize: vertical;
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: #8b97a7;
+}
+
+input:focus,
+textarea:focus {
+    outline: none;
+    border-color: #4f82f6;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.22);
+    background: #0d1628;
+}
+
+button {
+    border: none;
+    border-radius: 8px;
+    padding: 10px 14px;
+    cursor: pointer;
+    color: #fff;
+    min-width: 80px;
+    font-weight: 600;
+    transition: transform 0.12s ease, filter 0.2s ease, opacity 0.2s ease;
+}
+
+button.primary {
+    background: var(--primary);
+}
+
+button.secondary {
+    background: var(--danger);
+}
+
+button:hover:not(:disabled) {
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+}
+
+button:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+button:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.hint {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+
+.message {
+    min-height: 20px;
+    margin-top: 8px;
+    color: var(--muted);
+}
+
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.metric-grid.compact {
+    margin-top: 4px;
+}
+
+.metric-card {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)), var(--panel-soft);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+}
+
+.metric-card span {
+    display: block;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.metric-card strong {
+    display: block;
+    margin-top: 4px;
+    font-size: 24px;
+    letter-spacing: 0.3px;
+}
+
+.metric-card.small strong {
+    font-size: 20px;
+}
+
+.headline-box, .headline-list {
+    margin-top: 12px;
+    background: var(--panel-soft);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+}
+
+.headline-box h3, .headline-list h3 {
+    margin: 0 0 8px;
+    font-size: 15px;
+}
+
+.headline-box p {
+    margin: 0;
+    font-size: 14px;
+    color: #d6dbe3;
+}
+
+#headlinesList {
+    margin: 0;
+    padding-left: 18px;
+    max-height: 360px;
+    overflow: auto;
+}
+
+#headlinesList li {
+    margin-bottom: 9px;
+    font-size: 14px;
+    color: #d9dee7;
+}
+
+.chat-history {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01)), var(--panel-soft);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    min-height: 360px;
+    max-height: 500px;
+    overflow: auto;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+
+.chat-msg {
+    margin-bottom: 10px;
+    padding: 9px 11px;
+    border-radius: 8px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+}
+
+.chat-msg.user {
+    background: #1d4ed8;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.chat-msg.assistant {
+    background: #065f46;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.chat-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: end;
+}
+
+#headlinesList::-webkit-scrollbar,
+.chat-history::-webkit-scrollbar {
+    width: 10px;
+}
+
+#headlinesList::-webkit-scrollbar-track,
+.chat-history::-webkit-scrollbar-track {
+    background: #0d1423;
+    border-radius: 999px;
+}
+
+#headlinesList::-webkit-scrollbar-thumb,
+.chat-history::-webkit-scrollbar-thumb {
+    background: #2f3b4f;
+    border-radius: 999px;
+    border: 2px solid #0d1423;
+}
+
+#headlinesList::-webkit-scrollbar-thumb:hover,
+.chat-history::-webkit-scrollbar-thumb:hover {
+    background: #3c4b63;
+}
+
+@media (max-width: 1200px) {
+    .layout {
+        grid-template-columns: 1fr;
+    }
+
+    .app-shell {
+        padding: 20px 14px;
+    }
+
+    .panel {
+        padding: 16px;
+    }
+}
+
+@media (max-width: 640px) {
+    .row {
+        flex-wrap: wrap;
+    }
+
+    .row button {
+        flex: 1 1 calc(50% - 5px);
+    }
+
+    .metric-grid {
+        grid-template-columns: 1fr;
+    }
+}

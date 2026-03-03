@@ -19,7 +19,7 @@ try:
         "sentiment-analysis",
         model="ProsusAI/finbert",
         device=device,
-        torch_dtype=torch.float32,  # Use float32 for CPU
+        dtype=torch.float32,  # Use float32 for CPU
         return_all_scores=False,
         truncation=True,
         max_length=512
@@ -117,3 +117,41 @@ def consume_news():
         yield get_summary(buffer)
         # Small delay to avoid tight loop
         time.sleep(1)
+
+
+def consume_news_for_company(company, stop_event=None, poll_timeout_ms=1000):
+    """Consume Kafka messages and yield summaries for a single company."""
+    consumer = KafkaConsumer(
+        TOPIC,
+        bootstrap_servers="localhost:9092",
+        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+        auto_offset_reset="earliest",
+        enable_auto_commit=False,
+        consumer_timeout_ms=poll_timeout_ms
+    )
+
+    buffer = []
+    try:
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                break
+
+            has_new_message = False
+            for msg in consumer:
+                payload = msg.value
+                if payload.get("company", "").strip().lower() != company.strip().lower():
+                    continue
+
+                buffer.append(payload)
+                has_new_message = True
+                yield get_summary(buffer)
+
+                if stop_event is not None and stop_event.is_set():
+                    break
+
+            if not has_new_message:
+                if buffer:
+                    yield get_summary(buffer)
+                time.sleep(1)
+    finally:
+        consumer.close()

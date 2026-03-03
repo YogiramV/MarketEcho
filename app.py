@@ -1,54 +1,23 @@
-import streamlit as st
-import importlib.util
-import threading
 import os
-import time
 import re
+import threading
 from datetime import datetime
+
 import requests
+from flask import Flask, jsonify, render_template, request
 
-# --- Dynamically import and start Kafka ---
-def load_and_start_kafka():
-    kafka_path = os.path.join(os.path.dirname(__file__), "start_kafka.py")
-    spec = importlib.util.spec_from_file_location("start_kafka", kafka_path)
-    start_kafka = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(start_kafka)
-    start_kafka.start_kafka()  # explicitly call it
-    return True
+from consumer import consume_news_for_company
+from producer import get_company_news, produce_news
+from start_kafka import start_kafka
 
+app = Flask(__name__)
 
-# --- Streamlit setup ---
-st.set_page_config(page_title="Financial News Sentiment Dashboard", layout="wide")
-st.title("💹 Financial News Sentiment Dashboard")
-st.caption("Real-time financial sentiment analysis using Kafka + AI")
-
-# --- Chatbot configuration (Ollama) ---
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
 SYSTEM_PROMPT = (
     "You are the MarketEcho assistant. Help users understand the sentiment dashboard, "
     "explain headlines, and answer questions about the app. Keep answers concise."
 )
-
-
-def ollama_chat(messages):
-    url = f"{OLLAMA_HOST}/api/chat"
-    payload = {
-        "model": OLLAMA_MODEL,
-        "messages": messages,
-        "stream": False,
-    }
-    try:
-        response = requests.post(url, json=payload, timeout=60)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("message", {}).get("content", "")
-    except requests.RequestException as exc:
-        return (
-            "Chat error. Make sure Ollama is running and the model is pulled. "
-            f"Details: {exc}"
-        )
-
 
 NEWS_KEYWORDS = ("news", "headline", "headlines", "updates", "stock", "price", "shares")
 FILLER_WORDS = {
@@ -75,6 +44,77 @@ FILLER_WORDS = {
     "on",
     "of",
 }
+
+pipeline_lock = threading.Lock()
+kafka_lock = threading.Lock()
+
+kafka_started = False
+producer_thread = None
+consumer_thread = None
+stop_event = None
+
+state = {
+    "running": False,
+    "company": None,
+    "updated_at": None,
+    "error": None,
+    "summary": {
+        "counts": {"positive": 0, "negative": 0, "neutral": 0},
+        "most_positive": {"headline": "", "score": 0},
+        "most_negative": {"headline": "", "score": 0},
+        "overall": "neutral",
+        "confidence": 0.0,
+        "headlines": [],
+    },
+}
+
+
+def ollama_chat(messages):
+    url = f"{OLLAMA_HOST}/api/chat"
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": messages,
+        "stream": False,
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("message", {}).get("content", ""), None
+    except requests.RequestException as exc:
+        return "", (
+            "Ollama is unavailable. Make sure it is running and the model is pulled. "
+            f"Details: {exc}"
+        )
+
+
+def fallback_chat_reply(prompt, error_message=None):
+    lower = prompt.lower()
+
+    if any(word in lower for word in ("start", "run", "pipeline", "analysis")):
+        base = (
+            "To run analysis: enter a company name, click Start, then watch live sentiment metrics "
+            "update every few seconds. Click Stop to end the stream."
+        )
+    elif any(word in lower for word in ("sentiment", "confidence", "positive", "negative", "neutral")):
+        base = (
+            "MarketEcho classifies headlines as positive, negative, or neutral and computes an overall "
+            "sentiment with confidence from the rolling stream."
+        )
+    elif any(word in lower for word in ("kafka", "topic", "producer", "consumer")):
+        base = (
+            "Kafka streams headlines on the financial-news topic: producer fetches news, consumer scores "
+            "sentiment, and the dashboard polls /api/status for updates."
+        )
+    else:
+        base = (
+            "I can help with pipeline controls, sentiment metrics, and headline summaries. "
+            "Ask about a company (for example: latest news for Tesla)."
+        )
+
+    if error_message:
+        return f"{base}\n\nNote: {error_message}"
+    return base
 
 
 def normalize_company(candidate):
@@ -123,121 +163,185 @@ def summarize_headlines(company, headlines):
             ),
         },
     ]
-    return ollama_chat(messages)
+    summary, _ = ollama_chat(messages)
+    if summary.strip():
+        return summary.strip()
+
+    sample = ", ".join(headlines[:3])
+    return (
+        f"Recent coverage for {company} is mixed across major outlets. "
+        f"Top themes include: {sample}. "
+        "Review the latest headlines below for source-level details."
+    )
 
 
+def ensure_kafka_started():
+    global kafka_started
+
+    with kafka_lock:
+        if kafka_started:
+            return True
+
+        kafka_started = start_kafka()
+        return kafka_started
 
 
-# --- Start Kafka once per session ---
-if "kafka_started" not in st.session_state:
-    st.info("🔍 Checking Kafka cluster status...")
-    if load_and_start_kafka():
-        st.session_state.kafka_started = True
-        st.success("✅ Kafka cluster is running and ready!")
-    else:
-        st.error("❌ Failed to start Kafka. Please verify configuration.")
-else:
-    st.success("✅ Kafka already running.")
+def reset_state(company):
+    state["running"] = True
+    state["company"] = company
+    state["updated_at"] = datetime.utcnow().isoformat()
+    state["error"] = None
+    state["summary"] = {
+        "counts": {"positive": 0, "negative": 0, "neutral": 0},
+        "most_positive": {"headline": "", "score": 0},
+        "most_negative": {"headline": "", "score": 0},
+        "overall": "neutral",
+        "confidence": 0.0,
+        "headlines": [],
+    }
 
 
-# --- Import Producer & Consumer ---
-from producer import produce_news, get_company_news
-from consumer import consume_news
+def stop_pipeline_locked():
+    global producer_thread, consumer_thread, stop_event
+
+    if stop_event is not None:
+        stop_event.set()
+
+    state["running"] = False
+
+    producer_thread = None
+    consumer_thread = None
+    stop_event = None
 
 
-# --- Sidebar Chatbot ---
-st.sidebar.header("Chatbot")
-st.sidebar.caption(f"Local model: {OLLAMA_MODEL}")
+def consumer_worker(company, local_stop_event):
+    try:
+        for counts, most_pos, most_neg, overall, conf, all_headlines in consume_news_for_company(
+            company, stop_event=local_stop_event
+        ):
+            with pipeline_lock:
+                if local_stop_event.is_set() or state["company"] != company:
+                    break
 
-user_prompt = st.sidebar.chat_input("Ask about the dashboard or headlines")
-if user_prompt:
-    with st.sidebar.chat_message("user"):
-        st.markdown(user_prompt)
-    with st.sidebar.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            company_from_chat = extract_company_from_prompt(user_prompt)
-            if company_from_chat:
-                headlines = get_company_news(company_from_chat)
-                if headlines:
-                    summary = summarize_headlines(company_from_chat, headlines).strip()
-                    if not summary:
-                        summary = "Here is a quick summary of the latest coverage."
-                    latest_headlines = "\n".join(f"- {headline}" for headline in headlines[:10])
-                    reply = (
-                        f"{summary}\n\nLatest headlines for {company_from_chat}:\n"
-                        f"{latest_headlines}"
-                    )
-                else:
-                    reply = f"I couldn't find recent headlines for {company_from_chat}."
-            else:
-                messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_prompt}]
-                reply = ollama_chat(messages)
-            st.markdown(reply)
-
-
-# --- Company Input ---
-company = st.text_input("Enter Company Name:", "Tesla")
-
-# --- Single Unified Button ---
-start_btn = st.button("🚀 Start Analysis")
-
-# --- Start both Producer + Consumer together ---
-if start_btn:
-    st.success(f"Starting full sentiment analysis pipeline for {company}...")
-
-    # Run producer in background
-    producer_thread = threading.Thread(target=produce_news, args=(company,), daemon=True)
-    producer_thread.start()
-
-    # Run consumer live updates
-    st.info("📊 Fetching live sentiment updates...")
-    placeholder = st.empty()
-
-    for counts, most_pos, most_neg, overall, conf, all_headlines in consume_news():
-        with placeholder.container():
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            st.markdown(f"### 🕒 Live Sentiment Summary for **{company}** (Updated: `{current_time}`)") 
-            
-            # Display total news analyzed
-            total_news = sum(counts.values())
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("📰 Total News Analyzed", total_news)
-            with col2:
-                st.metric("Overall Sentiment", overall.upper(), f"{conf:.1f}% confidence")
-
-            st.write("---")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("😊 Positive", counts["positive"], 
-                     f"{counts['positive']/total_news*100:.1f}%" if total_news > 0 else "0%")
-            c2.metric("☹️ Negative", counts["negative"],
-                     f"{counts['negative']/total_news*100:.1f}%" if total_news > 0 else "0%")
-            c3.metric("😐 Neutral", counts["neutral"],
-                     f"{counts['neutral']/total_news*100:.1f}%" if total_news > 0 else "0%")
-
-            st.write("---")
-            st.subheader("Top Headlines")
-            st.write(f"**Most Positive:** {most_pos['headline']} *(score={most_pos['score']:.2f})*")
-            st.write(f"**Most Negative:** {most_neg['headline']} *(score={most_neg['score']:.2f})*")
-
-            # Display all headlines with sentiment
-            st.write("---")
-            st.subheader(f"📋 All {len(all_headlines)} Headlines (Sorted by Sentiment)")
-            
-            for idx, item in enumerate(all_headlines, 1):
-                sentiment_emoji = {
-                    "positive": "😊",
-                    "negative": "☹️",
-                    "neutral": "😐"
+                state["summary"] = {
+                    "counts": counts,
+                    "most_positive": most_pos,
+                    "most_negative": most_neg,
+                    "overall": overall,
+                    "confidence": round(conf, 2),
+                    "headlines": all_headlines,
                 }
-                emoji = sentiment_emoji.get(item["sentiment"], "")
-                score_color = "green" if item["score"] > 0 else "red" if item["score"] < 0 else "gray"
-                
-                st.markdown(
-                    f"{idx}. {emoji} **{item['sentiment'].upper()}** "
-                    f"(:{score_color}[score: {item['score']:.3f}]) - {item['headline']}"
-                )
+                state["updated_at"] = datetime.utcnow().isoformat()
+    except Exception as exc:
+        with pipeline_lock:
+            state["error"] = str(exc)
+            state["running"] = False
 
-            # Small delay to keep UI responsive and update time regularly
-            time.sleep(2)
+
+@app.route("/")
+def index():
+    return render_template("index.html", model_name=OLLAMA_MODEL)
+
+
+@app.post("/api/start")
+def api_start():
+    payload = request.get_json(silent=True) or {}
+    company = (payload.get("company") or "").strip()
+
+    if not company:
+        return jsonify({"ok": False, "error": "Company name is required."}), 400
+
+    if not ensure_kafka_started():
+        return jsonify({"ok": False, "error": "Failed to start Kafka."}), 500
+
+    global producer_thread, consumer_thread, stop_event
+
+    with pipeline_lock:
+        stop_pipeline_locked()
+        reset_state(company)
+
+        stop_event = threading.Event()
+        local_stop_event = stop_event
+
+        producer_thread = threading.Thread(
+            target=produce_news,
+            args=(company, local_stop_event),
+            daemon=True,
+        )
+        consumer_thread = threading.Thread(
+            target=consumer_worker,
+            args=(company, local_stop_event),
+            daemon=True,
+        )
+
+        producer_thread.start()
+        consumer_thread.start()
+
+    return jsonify({"ok": True, "message": f"Pipeline started for {company}."})
+
+
+@app.post("/api/stop")
+def api_stop():
+    with pipeline_lock:
+        stop_pipeline_locked()
+
+    return jsonify({"ok": True, "message": "Pipeline stopped."})
+
+
+@app.get("/api/status")
+def api_status():
+    with pipeline_lock:
+        counts = state["summary"]["counts"]
+        total_news = sum(counts.values())
+
+        return jsonify(
+            {
+                "ok": True,
+                "running": state["running"],
+                "company": state["company"],
+                "updated_at": state["updated_at"],
+                "error": state["error"],
+                "summary": {
+                    **state["summary"],
+                    "total_news": total_news,
+                },
+            }
+        )
+
+
+@app.post("/api/chat")
+def api_chat():
+    payload = request.get_json(silent=True) or {}
+    prompt = (payload.get("prompt") or "").strip()
+
+    if not prompt:
+        return jsonify({"ok": False, "error": "Prompt is required."}), 400
+
+    company_from_chat = extract_company_from_prompt(prompt)
+    if company_from_chat:
+        headlines = get_company_news(company_from_chat)
+        if headlines:
+            summary = summarize_headlines(company_from_chat, headlines).strip()
+            if not summary:
+                summary = "Here is a quick summary of the latest coverage."
+            latest_headlines = "\n".join(f"- {headline}" for headline in headlines[:10])
+            reply = (
+                f"{summary}\n\nLatest headlines for {company_from_chat}:\n"
+                f"{latest_headlines}"
+            )
+        else:
+            reply = f"I couldn't find recent headlines for {company_from_chat}."
+    else:
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+        reply, error = ollama_chat(messages)
+        if not reply.strip():
+            reply = fallback_chat_reply(prompt, error)
+
+    return jsonify({"ok": True, "reply": reply})
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=False)
